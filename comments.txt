@@ -1,3 +1,61 @@
 /*Добавьте в этот файл пояснения к выбранной модели данных. 
 Также вы можете сохранить здесь другие комментарии по проекту, которые вы считаете необходимыми, 
 и задать вопросы ревьюеру*/
+
+Связи:
+brand_origins (1) ──< brand (N)
+brand (1) ──< cars (N)
+car_model (1) ──< cars (N)
+color (1) ──< cars (N)
+gasoline_consumption (1) ──< cars (N)   [может быть 0, если gasoline_id NULL]
+cars (1) ──< sales (1)   [так как auto_id UNIQUE в sales]
+client (1) ──< sales (N)
+
+Ключевые ограничения целостности:
+Каждый автомобиль (cars) имеет внешние ключи на все справочники, при этом gasoline_id и brand_origin_id могут быть NULL (для случаев, когда данные неизвестны).
+Продажа (sales) ссылается на уникальный auto_id, что гарантирует, что автомобиль не может быть продан более одного раза.
+Номер телефона клиента уникален, что предотвращает дублирование записей клиентов.
+
+1. brand_origins – справочник стран-производителей
+Столбец	Тип	Ограничения	Описание
+brand_origin_id	SERIAL	PRIMARY KEY	Идентификатор страны
+brand_origin_name	VARCHAR(100)	NOT NULL, UNIQUE	Название страны (например, 'Germany')
+2. brand – справочник марок автомобилей
+Столбец	Тип	Ограничения	Описание
+brand_id	SERIAL	PRIMARY KEY	Идентификатор бренда
+brand_name	VARCHAR(100)	NOT NULL, UNIQUE	Название бренда (например, 'BMW')
+brand_origin_id	INTEGER	NOT NULL, внешний ключ → brand_origins(brand_origin_id)	Страна происхождения бренда
+3. car_model – справочник моделей
+Столбец	Тип	Ограничения	Описание
+car_model_id	SERIAL	PRIMARY KEY	Идентификатор модели
+car_model_name	VARCHAR(100)	NOT NULL, UNIQUE	Название модели (например, 'X5')
+4. color – справочник цветов
+Столбец	Тип	Ограничения	Описание
+color_id	SERIAL	PRIMARY KEY	Идентификатор цвета
+color_name	VARCHAR(50)	NOT NULL, UNIQUE	Название цвета (например, 'Red')
+5. gasoline_consumption – справочник расхода топлива
+Столбец	Тип	Ограничения	Описание
+gasoline_id	SERIAL	PRIMARY KEY	Идентификатор записи расхода
+total	NUMERIC(4,2)	CHECK (total IS NULL OR (total >= 0 AND total < 100))	Расход в литрах на 100 км. Может быть NULL для неизвестного или электротранспорта.
+6. cars – таблица автомобилей (конкретные экземпляры)
+Столбец	Тип	Ограничения	Описание
+auto_id	SERIAL	PRIMARY KEY	Уникальный идентификатор автомобиля
+car_model_id	INTEGER	NOT NULL, внешний ключ → car_model(car_model_id)	Модель автомобиля
+color_id	INTEGER	NOT NULL, внешний ключ → color(color_id)	Цвет автомобиля
+brand_id	INTEGER	NOT NULL, внешний ключ → brand(brand_id)	Марка автомобиля
+gasoline_id	INTEGER	внешний ключ → gasoline_consumption(gasoline_id), может быть NULL	Расход топлива (если неизвестен – NULL)
+brand_origin_id	INTEGER	внешний ключ → brand_origins(brand_origin_id), может быть NULL	Страна происхождения бренда (дублируется для удобства, может быть NULL при отсутствии данных)
+7. client – таблица клиентов
+Столбец	Тип	Ограничения	Описание
+client_id	SERIAL	PRIMARY KEY	Идентификатор клиента
+first_name	VARCHAR(50)	NOT NULL	Имя
+last_name	VARCHAR(50)	NOT NULL	Фамилия
+phone	VARCHAR(20)	UNIQUE, NOT NULL	Номер телефона (уникален)
+8. sales – таблица продаж
+Столбец	Тип	Ограничения	Описание
+sales_id	SERIAL	PRIMARY KEY	Уникальный номер продажи
+auto_id	INTEGER	NOT NULL, UNIQUE, внешний ключ → cars(auto_id)	Автомобиль (каждый продаётся только один раз)
+client_id	INTEGER	NOT NULL, внешний ключ → client(client_id)	Покупатель
+price	DECIMAL(12,2)	NOT NULL, CHECK (price > 0)	Фактическая цена продажи (уже с учётом скидки)
+discount	SMALLINT	DEFAULT 0, CHECK (discount BETWEEN 0 AND 100)	Размер скидки в процентах
+sale_date	DATE	NOT NULL, DEFAULT CURRENT_DATE	Дата продажи

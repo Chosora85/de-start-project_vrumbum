@@ -29,6 +29,7 @@ create table car_shop.car_model (
 	gasoline_consumption numeric(4,2)
         CHECK (gasoline_consumption IS NULL
                OR (gasoline_consumption < 100 AND gasoline_consumption >= 0))
+    UNIQUE (brand_id, car_model_name)
 );
 
 create table car_shop.color (
@@ -36,28 +37,22 @@ create table car_shop.color (
 	color_name varchar not null unique
 	);
 
-create table car_shop.brand (
-	brand_id serial primary key,
-	brand_name varchar not null unique
-    brand_origin_id integer references car_shop.brand_origins (brand_origin_id)
-	);
-
 create table car_shop.brand_origins (
 	brand_origin_id serial primary key,
 	brand_origin_name varchar unique
 	);
 
-create table car_shop.gasoline_consumption (
-	gasoline_id serial primary key,
-	total Numeric(4,2) check (total is null or (total < 100 and total >= 0))
+create table car_shop.brand (
+	brand_id serial primary key,
+	brand_name varchar not null unique,
+    brand_origin_id integer references car_shop.brand_origins (brand_origin_id)
 	);
 
 create table car_shop.cars (
 	auto_id SERIAL primary key,
 	car_model_id integer not null references car_shop.car_model (car_model_id),
 	color_id integer not null references car_shop.color (color_id),
-	--brand_origin_id integer references car_shop.brand_origins (brand_origin_id)
-    UNIQUE (car_model_id, color_id)
+	    UNIQUE (car_model_id, color_id)
 	);
 
 create table car_shop.sales (
@@ -77,21 +72,21 @@ SELECT DISTINCT
 FROM raw_date.sales as s
 ON CONFLICT (phone) DO NOTHING;
 
-INSERT INTO car_shop.brand_origins  (brand_origin_name)
+INSERT INTO car_shop.brand_origins (brand_origin_name)
 SELECT DISTINCT brand_origin FROM raw_date.sales s
 WHERE NOT EXISTS 
     (SELECT 1 FROM car_shop.brand_origins bo
-    WHERE bo.brand_origins_name IS NOT DISTINCT FROM s.brand_origin) 
+    WHERE bo.brand_origin_name IS NOT DISTINCT FROM s.brand_origin) 
 ON CONFLICT (brand_origin_name) DO NOTHING;
 
 INSERT INTO car_shop.brand (brand_name, brand_origin_id)
 SELECT DISTINCT 
-        SPLIT_PART(s.auto, ' ', 1) AS brand_name
+        SPLIT_PART(s.auto, ' ', 1) AS brand_name,
         MAX(bo.brand_origin_id) AS brand_origin_id
 FROM raw_date.sales s
 LEFT JOIN car_shop.brand_origins bo
     ON bo.brand_origin_name IS NOT DISTINCT FROM s.brand_origin
-GROUP BY SPLIT_PART(s.auto, '', 1)
+GROUP BY SPLIT_PART(s.auto, ' ', 1)
 ON CONFLICT (brand_name) DO NOTHING;
 
 -- 1. Справочник моделей (всё после первого слова до запятой)
@@ -106,11 +101,6 @@ GROUP BY TRIM(SUBSTRING(SPLIT_PART(s.auto, ',', 1)
               FROM POSITION(' ' IN SPLIT_PART(s.auto, ',', 1)) + 1))
 ON CONFLICT (car_model_name) DO NOTHING;
 
-
---FROM raw_date.sales s
---WHERE POSITION(' ' IN SPLIT_PART(s.auto, ',', 1)) > 0
---ON CONFLICT (car_model_name) DO NOTHING;
-
 -- 2. Справочник цветов (после запятой)
 INSERT INTO car_shop.color (color_name)
 SELECT DISTINCT TRIM(SPLIT_PART(s.auto, ',', 2))
@@ -118,35 +108,24 @@ FROM raw_date.sales s
 WHERE SPLIT_PART(s.auto, ',', 2) <> ''
 ON CONFLICT (color_name) DO NOTHING;
 
--- 3. Справочник расхода топлива (если есть)
---INSERT INTO car_shop.gasoline_consumption (total)
---SELECT DISTINCT s.gasoline_consumption
---FROM raw_date.sales s;
-
--- 4. Автомобили (каждая запись источника – один автомобиль)
-INSERT INTO car_shop.cars (car_model_id, color_id, brand_id, brand_origin_id)
+-- 3. Автомобили (каждая запись источника – один автомобиль)
+INSERT INTO car_shop.cars (car_model_id, color_id)
 SELECT
     cm.car_model_id,
     c.color_id,
-    b.brand_id,
-    --COALESCE(g.gasoline_id, (SELECT gasoline_id FROM car_shop.gasoline_consumption WHERE total IS NULL)) AS gasoline_id,
-    --COALESCE(bo.brand_origin_id, (SELECT brand_origin_id FROM car_shop.brand_origins WHERE brand_origin_name IS NULL)) AS brand_origin_id
+    b.brand_id
 FROM raw_date.sales s
 JOIN car_shop.car_model cm 
-    ON cm.car_model_name = TRIM(SUBSTRING(SPLIT_PART(s.auto, ',', 1) FROM POSITION(' ' IN SPLIT_PART(s.auto, ',', 1)) + 1))
+    ON cm.car_model_name = TRIM(SUBSTRING(SPLIT_PART(s.auto, ',', 1) 
+    FROM POSITION(' ' IN SPLIT_PART(s.auto, ',', 1)) + 1))
 JOIN car_shop.color c 
     ON c.color_name = TRIM(SPLIT_PART(s.auto, ',', 2))
 JOIN car_shop.brand b 
     ON b.brand_name = SPLIT_PART(s.auto, ' ', 1)
---LEFT JOIN car_shop.gasoline_consumption g 
---   ON g.total = s.gasoline_consumption
---LEFT JOIN car_shop.brand_origins bo 
---   ON bo.brand_origin_name IS NOT DISTINCT FROM s.brant_origin
 ORDER BY cm.car_model_id, col.color_id, s.id
 ON CONFLICT (car_model_id, color_id) DO NOTHING;
-    
-    
-    -- 5. Продажи
+        
+    -- 4. Продажи
 INSERT INTO car_shop.sales (auto_id, client_id, price, discount, sale_date)
 SELECT
     c.auto_id,
@@ -163,18 +142,8 @@ JOIN car_shop.color col
 JOIN car_shop.cars c
     ON c.car_model_id = cm.car_model_id
    AND c.color_id     = col.color_id
---FROM raw_date.sales s
---JOIN car_shop.cars c ON (
- --   c.car_model_id = (SELECT car_model_id FROM car_shop.car_model WHERE car_model_name = TRIM(SUBSTRING(SPLIT_PART(s.auto, ',', 1) FROM POSITION(' ' IN SPLIT_PART(s.auto, ',', 1)) + 1)))
- --   AND c.color_id = (SELECT color_id FROM car_shop.color WHERE color_name = TRIM(SPLIT_PART(s.auto, ',', 2)))
-  --  AND c.brand_id = (SELECT brand_id FROM car_shop.brand WHERE brand_name = SPLIT_PART(s.auto, ' ', 1))
-   -- AND c.gasoline_id IS NOT DISTINCT FROM (SELECT gasoline_id FROM car_shop.gasoline_consumption WHERE total IS NOT DISTINCT FROM s.gasoline_consumption)
-    --AND c.brand_origin_id IS NOT DISTINCT FROM (SELECT brand_origin_id FROM car_shop.brand_origins WHERE brand_origin_name IS NOT DISTINCT FROM s.brant_origin)   -- исправлено
---)
 JOIN car_shop.client cl 
 ON cl.phone = s.phone;
---ON CONFLICT (auto_id) DO NOTHING;
-
 
 -- Этап 2. Создание выборок
 ---- Задание 1. Напишите запрос, который выведет процент моделей машин, у которых нет параметра `gasoline_consumption`.
@@ -183,12 +152,6 @@ SELECT
         100.0 * COUNT (*) FILTER (WHERE cm.gasoline_consumption IS NULL)
         / NULLIF(COUNT(*), 0),
         2
-            --SELECT COUNT(*) 
-            --FROM car_shop.cars c
-            --JOIN car_shop.gasoline_consumption gc ON c.gasoline_id = gc.gasoline_id
-            --WHERE gc.total IS NULL
-        --) / (SELECT COUNT(*) FROM car_shop.cars),
-        --2
     ) AS nulls_percentage_gasoline_consumption
 FROM car_shop.car_model cm;
 
